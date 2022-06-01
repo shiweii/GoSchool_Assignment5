@@ -1,0 +1,79 @@
+version: '3.3'
+
+services:
+  db:
+    container_name: db
+    image: "mysql:latest"
+    restart: always
+    networks:
+      - default
+    ports:
+      - "60123:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      - MYSQL_DATABASE=database
+      - MYSQL_ROOT_PASSWORD=password
+    volumes:
+      - "./scripts/dental_db.sql:/docker-entrypoint-initdb.d/1.sql"
+      - "./scripts/dental_db_User.sql:/docker-entrypoint-initdb.d/2.sql"
+      - "./scripts/dental_db_APIAccessKey.sql:/docker-entrypoint-initdb.d/3.sql"
+      - "./scripts/dental_db_Appointment.sql:/docker-entrypoint-initdb.d/4.sql"
+      - "./scripts/dental_db_AppointmentSession.sql:/docker-entrypoint-initdb.d/5.sql"
+      - "./scripts/dental_db_Authentication.sql:/docker-entrypoint-initdb.d/6.sql"
+      - "./scripts/dental_db_UserSession.sql:/docker-entrypoint-initdb.d/7.sql"
+      - "./scripts/dental_db_routines.sql:/docker-entrypoint-initdb.d/8.sql"
+
+  web_app:
+    container_name: web_app
+    build:
+      dockerfile: ../dental_app/cmd/main/Dockerfile
+    ports:
+      - "8080:8080"
+    networks:
+      - default
+    expose:
+      - 8080
+    depends_on:
+      - user_api
+      - appointment_api
+      - authentication
+
+  user_api:
+    container_name: user_api
+    build:
+      dockerfile: ../dental_app/api/v1/user/Dockerfile
+    ports:
+      - "8081:8080"
+    networks:
+      - default
+    expose:
+      - 8081
+    depends_on:
+      - db
+
+  appointment_api:
+    container_name: appointment_api
+    build:
+      dockerfile: ../dental_app/api/v1/appointment/Dockerfile
+    ports:
+      - "8082:8080"
+    networks:
+      - default
+    expose:
+      - 8082
+    depends_on:
+      - db
+
+  authentication_api:
+    container_name: authentication_api
+    build:
+      dockerfile: ../dental_app/api/v1/authentication/Dockerfile
+    ports:
+      - "8083:8080"
+    networks:
+      - default
+    expose:
+      - 8083
+    depends_on:
+      - db
+      - user_api
