@@ -1,4 +1,4 @@
-module GoSchool_Assignment5/dental_app/api/v1/appointment
+module dental_app/api/v1/appointment
 
 go 1.18
 

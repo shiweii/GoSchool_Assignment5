@@ -1,4 +1,4 @@
-module GoSchool_Assignment5/dental_app/cmd/main
+module dental_app/cmd/main
 
 go 1.18
 

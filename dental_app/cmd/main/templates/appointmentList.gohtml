@@ -42,7 +42,7 @@
                         <td>{{$key | addOne}}</td>
                         <td>{{$val.Patient.FirstName}} {{$val.Patient.LastName}}</td>
                         <td>{{$val.Dentist.FirstName}} {{$val.Dentist.LastName}}</td>
-                        <td>{{$val.Date}}</td>
+                        <td>{{$val.Date | formatDate}}</td>
                         <td>{{$val.Session.ID}}</td>
                         <td>{{$val.Session.StartTime}} - {{$val.Session.EndTime}}</td>
                         <td>

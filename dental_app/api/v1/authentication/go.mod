@@ -1,4 +1,4 @@
-module GoSchool_Assignment5/dental_app/api/v1/authentication
+module dental_app/api/v1/authentication
 
 go 1.18
 
