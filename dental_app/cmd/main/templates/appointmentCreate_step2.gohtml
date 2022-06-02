@@ -12,6 +12,12 @@
 <body>
 <div class="container">
     {{template "navbar" .}}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/appointments">Manage Appointment</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Create Appointment</li>
+        </ol>
+    </nav>
     <h2>Create Appointment</h2>
     <br/>
     {{if not .Dentist}}

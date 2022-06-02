@@ -12,11 +12,21 @@
 <body>
 <div class="container">
     {{template "navbar" .}}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/appointments">Manage Appointment</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Create Appointment</li>
+        </ol>
+    </nav>
     {{ if .Successful }}
         <div class="alert alert-success" role="alert">Appointment created successfully</div>
     {{end}}
     {{ if .Error }}
-        <div class="alert alert-danger" role="alert">Error: Appointment not created, <a href="/appointment/create">click here</a> to make another appointment</div>
+        {{ if .SessionBooked}}
+            <div class="alert alert-danger" role="alert">The appointment slot have been booked by another user. <a href="/appointment/create">Click here</a> to make another appointment.</div>
+        {{else}}
+            <div class="alert alert-danger" role="alert">Error: Appointment not created, <a href="/appointment/create">click here</a> to make another appointment</div>
+        {{end}}
     {{end}}
     <h2>New Appointment Details</h2>
     <br/>

@@ -3,39 +3,43 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/shiweii/logger"
 	"github.com/shiweii/user"
+	"github.com/shiweii/validator"
 )
 
 // userListHandler handles request to list all users (Admin only).
 func userListHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
-		results, err := db.Query("SELECT Username, FirstName, LastName, MobileNumber, IsDeleted, Role FROM User")
+		results, err := db.Query("SELECT Username, FirstName, LastName, MobileNumber, IsDeleted, Role FROM User ORDER BY Username ASC")
 		if err != nil {
-			panic(err.Error())
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		var users []user.User
 		for results.Next() {
 			// map this type to the record in the table
-			var user user.User
+			var userObj user.User
 			var mobilNum sql.NullInt64
-			err = results.Scan(&user.Username, &user.FirstName, &user.LastName, &mobilNum, &user.IsDeleted, &user.Role)
-			user.MobileNumber = int(mobilNum.Int64)
+			err = results.Scan(&userObj.Username, &userObj.FirstName, &userObj.LastName, &mobilNum, &userObj.IsDeleted, &userObj.Role)
+			userObj.MobileNumber = int(mobilNum.Int64)
 			if err != nil {
-				panic(err.Error())
+				logger.Error.Println(err)
+				res.WriteHeader(http.StatusInternalServerError)
+				return
 			} else {
-				users = append(users, user)
+				users = append(users, userObj)
 			}
 		}
-
 		json.NewEncoder(res).Encode(users)
 	}
 }
@@ -44,10 +48,17 @@ func userListHandler(db *sql.DB) http.HandlerFunc {
 func dentistListHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
-		query := fmt.Sprintf("SELECT Username, FirstName, LastName FROM User WHERE Role = '%s'", user.EnumDentist)
-		results, err := db.Query(query)
+		stmt, err := db.Prepare("SELECT Username, FirstName, LastName FROM User WHERE Role = ?")
 		if err != nil {
-			panic(err.Error())
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		results, err := stmt.Query(user.EnumDentist)
+		if err != nil {
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		var dentists []user.User
 		for results.Next() {
@@ -55,7 +66,9 @@ func dentistListHandler(db *sql.DB) http.HandlerFunc {
 			var dentist user.User
 			err = results.Scan(&dentist.Username, &dentist.FirstName, &dentist.LastName)
 			if err != nil {
-				panic(err.Error())
+				logger.Error.Println(err)
+				res.WriteHeader(http.StatusInternalServerError)
+				return
 			} else {
 				dentists = append(dentists, dentist)
 			}
@@ -64,14 +77,15 @@ func dentistListHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// TODO: Validation
 // userCreateHandler handles request to create a new user.
 func userCreateHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
 		var (
-			apiKeyUser user.User
-			newUser    user.User
+			apiKeyUser      user.User
+			newUser         user.User
+			validationError = make(map[string][]map[string]string)
+			errorFields     []map[string]string
 		)
 
 		reqBody, err := ioutil.ReadAll(req.Body)
@@ -82,6 +96,39 @@ func userCreateHandler(db *sql.DB) http.HandlerFunc {
 
 		// convert JSON to object
 		json.Unmarshal(reqBody, &newUser)
+
+		// Validation
+		// Validate username
+		if validator.IsEmpty(newUser.Username) || !validator.IsValidUsername(newUser.Username) {
+			error := make(map[string]string)
+			error["field"] = "Username"
+			errorFields = append(errorFields, error)
+		}
+		// Validate first name
+		if validator.IsEmpty(newUser.FirstName) || !validator.IsValidName(newUser.FirstName) {
+			error := make(map[string]string)
+			error["field"] = "FirstName"
+			errorFields = append(errorFields, error)
+		}
+		// Validate last name
+		if validator.IsEmpty(newUser.LastName) || !validator.IsValidName(newUser.LastName) {
+			error := make(map[string]string)
+			error["field"] = "LastName"
+			errorFields = append(errorFields, error)
+		}
+		// Validate mobile number
+		if validator.IsEmpty(strconv.Itoa(newUser.MobileNumber)) || !validator.IsMobileNumber(strconv.Itoa(newUser.MobileNumber)) {
+			error := make(map[string]string)
+			error["field"] = "MobileNumber"
+			errorFields = append(errorFields, error)
+		}
+
+		if len(errorFields) > 0 {
+			res.WriteHeader(http.StatusBadRequest)
+			validationError["validationError"] = errorFields
+			json.NewEncoder(res).Encode(validationError)
+			return
+		}
 
 		// Check if user exist
 		exist, err := newUser.UserExistByUsername(db)
@@ -184,7 +231,6 @@ func userDentistHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// TODO: Validation
 // userUpdateHandler handles request to update a user.
 func userUpdateHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
@@ -196,10 +242,12 @@ func userUpdateHandler(db *sql.DB) http.HandlerFunc {
 		}
 
 		var (
-			apiKeyUser user.User
-			origUser   user.User
-			editedUser user.User
-			result     map[string]interface{}
+			apiKeyUser      user.User
+			origUser        user.User
+			editedUser      user.User
+			result          map[string]interface{}
+			validationError = make(map[string][]map[string]string)
+			errorFields     []map[string]string
 		)
 
 		params := mux.Vars(req)
@@ -219,6 +267,7 @@ func userUpdateHandler(db *sql.DB) http.HandlerFunc {
 
 		reqBody, err := ioutil.ReadAll(req.Body)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -226,31 +275,58 @@ func userUpdateHandler(db *sql.DB) http.HandlerFunc {
 		// convert JSON to object
 		json.Unmarshal(reqBody, &result)
 
+		// Checking + Validation
 		editedUser.Username = username
 		if result["firstName"] != nil {
 			firstName := result["firstName"].(string)
 			if len(firstName) > 0 {
-				if com := strings.Compare(firstName, origUser.FirstName); com != 0 {
-					editedUser.FirstName = firstName
+				if !validator.IsValidName(firstName) {
+					error := make(map[string]string)
+					error["field"] = "FirstName"
+					errorFields = append(errorFields, error)
+				} else {
+					if com := strings.Compare(firstName, origUser.FirstName); com != 0 {
+						editedUser.FirstName = firstName
+					}
 				}
 			}
 		}
 		if result["lastName"] != nil {
 			lastName := result["lastName"].(string)
 			if len(lastName) > 0 {
-				if com := strings.Compare(lastName, origUser.LastName); com != 0 {
-					editedUser.LastName = lastName
+				if !validator.IsValidName(lastName) {
+					error := make(map[string]string)
+					error["field"] = "LastName"
+					errorFields = append(errorFields, error)
+				} else {
+					if com := strings.Compare(lastName, origUser.LastName); com != 0 {
+						editedUser.LastName = lastName
+					}
 				}
 			}
 		}
 		if result["mobileNumber"] != nil {
 			mobileNumber := int(result["mobileNumber"].(float64))
 			if mobileNumber > 0 {
-				if mobileNumber != origUser.MobileNumber {
-					editedUser.MobileNumber = mobileNumber
+				if !validator.IsMobileNumber(strconv.Itoa(mobileNumber)) {
+					error := make(map[string]string)
+					error["field"] = "MobileNumber"
+					errorFields = append(errorFields, error)
+				} else {
+					if mobileNumber != origUser.MobileNumber {
+						editedUser.MobileNumber = mobileNumber
+					}
 				}
 			}
 		}
+
+		if len(errorFields) > 0 {
+			res.WriteHeader(http.StatusBadRequest)
+			validationError["validationError"] = errorFields
+			json.NewEncoder(res).Encode(validationError)
+			return
+		}
+
 		if result["isDeleted"] != nil {
 			editedUser.IsDeleted = result["isDeleted"].(bool)
 		} else {
@@ -275,8 +351,8 @@ func userUpdateHandler(db *sql.DB) http.HandlerFunc {
 		// Update User
 		err = editedUser.UpdateUser(db, apiKeyUser.Role)
 		if err != nil {
-			res.WriteHeader(http.StatusInternalServerError)
 			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -286,8 +362,8 @@ func userUpdateHandler(db *sql.DB) http.HandlerFunc {
 			if len(password) > 0 {
 				_, err = db.Query("call spAuthenticationUpdate(?, ?)", editedUser.Username, password)
 				if err != nil {
-					res.WriteHeader(http.StatusInternalServerError)
 					logger.Error.Println(err)
+					res.WriteHeader(http.StatusInternalServerError)
 					return
 				}
 			}

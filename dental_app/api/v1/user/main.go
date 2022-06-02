@@ -2,8 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/go-sql-driver/mysql"
@@ -28,9 +26,9 @@ func main() {
 	db, err := sql.Open("mysql", dbCfg.FormatDSN())
 	// handle error
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal.Fatalln(err)
 	} else {
-		fmt.Println("Database opened")
+		logger.Info.Println("Database opened")
 	}
 
 	// defer the close till after the main function has finished executing

@@ -2,8 +2,8 @@ package user
 
 import (
 	"database/sql"
-	"fmt"
 
+	"github.com/shiweii/logger"
 	util "github.com/shiweii/utility"
 )
 
@@ -19,20 +19,10 @@ type User struct {
 	LastName     string `json:"lastName"`
 	MobileNumber int    `json:"mobileNumber,omitempty"`
 	IsDeleted    bool   `json:"isDeleted,omitempty"`
-	Role         string `json:"role,omitempty""`
+	Role         string `json:"role,omitempty"`
 }
 
 // New will return a newly created instance of a user.
-func New(username, role, firstName, lastName string, mobileNumber int) *User {
-	return &User{
-		Username:     username,
-		FirstName:    firstName,
-		LastName:     lastName,
-		MobileNumber: mobileNumber,
-		IsDeleted:    false,
-		Role:         role,
-	}
-}
 
 // GetUserRoleByAccessKey get user's role by access key
 func (u *User) GetUserRoleByAccessKey(db *sql.DB, accessKey string) (err error) {
@@ -75,8 +65,12 @@ func (u *User) GetUserByUsername(db *sql.DB, role, username string) (err error) 
 
 func (u *User) GetUserDetail(db *sql.DB) (err error) {
 	var mobilNum sql.NullInt64
-	query := fmt.Sprintf("SELECT FirstName, LastName, MobileNumber FROM User WHERE Username = '%s'", u.Username)
-	result := db.QueryRow(query)
+	stmt, err := db.Prepare("SELECT FirstName, LastName, MobileNumber FROM User WHERE Username = ?")
+	if err != nil {
+		logger.Error.Println(err)
+		return
+	}
+	result := stmt.QueryRow(u.Username)
 	err = result.Scan(&u.FirstName, &u.LastName, &mobilNum)
 	u.MobileNumber = int(mobilNum.Int64)
 	return

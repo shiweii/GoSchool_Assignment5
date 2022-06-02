@@ -130,8 +130,8 @@ func logoutHandler(res http.ResponseWriter, req *http.Request) {
 		// Set request to delete session from DB
 		url := util.GetEnvVar("API_AUTHENTICATION_ADDR") + "/api/v1/logout"
 
-		json := fmt.Sprintf(`{"sessionID":"%s"}`, cookie.Value)
-		var jsonStr = []byte(json)
+		jsonVal := fmt.Sprintf(`{"username":"%s"}`, loggedInUser["username"].(string))
+		var jsonStr = []byte(jsonVal)
 
 		req, err = http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
 		req.Header.Set("Access-Key", loggedInUser["apiAccessKey"].(string))
@@ -266,7 +266,7 @@ func appointmentCreateStep2Handler(res http.ResponseWriter, req *http.Request) {
 	params := mux.Vars(req)
 	dentist := params["dentist"]
 
-	url := util.GetEnvVar("API_USER_ADDR") + "/api/v1/user/" + dentist
+	url := util.GetEnvVar("API_USER_ADDR") + "/api/v1/user/dentist/" + dentist
 	body, err := util.FetchData(url, loggedInUser["apiAccessKey"].(string))
 	if err != nil {
 		logger.Error.Println(err)
@@ -305,14 +305,15 @@ func appointmentCreateConfirmHandler(res http.ResponseWriter, req *http.Request)
 	}
 
 	ViewData := struct {
-		LoggedInUser map[string]interface{}
-		Dentist      map[string]interface{}
-		Sessions     []map[string]interface{}
-		Session      int
-		Date         string
-		Successful   bool
-		Error        bool
-		CurrentPage  string
+		LoggedInUser  map[string]interface{}
+		Dentist       map[string]interface{}
+		Sessions      []map[string]interface{}
+		Session       int
+		Date          string
+		Successful    bool
+		Error         bool
+		CurrentPage   string
+		SessionBooked bool
 	}{
 		loggedInUser,
 		nil,
@@ -322,6 +323,7 @@ func appointmentCreateConfirmHandler(res http.ResponseWriter, req *http.Request)
 		false,
 		false,
 		"CNA",
+		false,
 	}
 
 	params := mux.Vars(req)
@@ -355,7 +357,7 @@ func appointmentCreateConfirmHandler(res http.ResponseWriter, req *http.Request)
 		}
 		json.Unmarshal(body, &result)
 		channel <- result
-	}(util.GetEnvVar("API_USER_ADDR")+"/api/v1/user/"+dentist, loggedInUser["apiAccessKey"].(string), chUserData)
+	}(util.GetEnvVar("API_USER_ADDR")+"/api/v1/user/dentist/"+dentist, loggedInUser["apiAccessKey"].(string), chUserData)
 
 	for i := 0; i < 2; i++ {
 		select {
@@ -370,10 +372,10 @@ func appointmentCreateConfirmHandler(res http.ResponseWriter, req *http.Request)
 
 		url := util.GetEnvVar("API_APPOINTMENT_ADDR") + "/api/v1/appointment"
 
-		json := fmt.Sprintf(`{"patient":"%s","dentist":"%s","date":"%s","session":%d}`,
+		jsonVal := fmt.Sprintf(`{"patient":"%s","dentist":"%s","date":"%s","session":%d}`,
 			loggedInUser["username"].(string), dentist, ViewData.Date, ViewData.Session,
 		)
-		var jsonStr = []byte(json)
+		var jsonStr = []byte(jsonVal)
 		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
 		req.Header.Set("Access-Key", loggedInUser["apiAccessKey"].(string))
 		req.Header.Set("Content-type", "application/json")
@@ -383,11 +385,17 @@ func appointmentCreateConfirmHandler(res http.ResponseWriter, req *http.Request)
 		if err != nil {
 			logger.Error.Println(err)
 		}
-		if resp.StatusCode != http.StatusCreated {
+
+		switch resp.StatusCode {
+		case http.StatusConflict:
 			ViewData.Error = true
-		} else {
+			ViewData.SessionBooked = true
+		case http.StatusCreated:
 			ViewData.Successful = true
+		default:
+			ViewData.Error = true
 		}
+
 		defer resp.Body.Close()
 	}
 
@@ -504,8 +512,9 @@ func appointmentEditConfirmHandler(res http.ResponseWriter, req *http.Request) {
 		OrigAppointment    *appointment
 		UpdatedAppointment *appointment
 		Successful         bool
-		Unsuccessful       bool
+		Error              bool
 		CurrentPage        string
+		SessionBooked      bool
 	}{
 		loggedInUser,
 		nil,
@@ -513,6 +522,7 @@ func appointmentEditConfirmHandler(res http.ResponseWriter, req *http.Request) {
 		false,
 		false,
 		"MA",
+		false,
 	}
 
 	params := mux.Vars(req)
@@ -607,12 +617,12 @@ func appointmentEditConfirmHandler(res http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodPost {
 		url := util.GetEnvVar("API_APPOINTMENT_ADDR") + "/api/v1/appointment/" + id
 
-		json := fmt.Sprintf(`{"dentist":"%s","date":"%s","session":%d}`,
+		jsonVal := fmt.Sprintf(`{"dentist":"%s","date":"%s","session":%d}`,
 			ViewData.UpdatedAppointment.Dentist.Username,
 			ViewData.UpdatedAppointment.Date,
 			ViewData.UpdatedAppointment.Session.ID,
 		)
-		var jsonStr = []byte(json)
+		var jsonStr = []byte(jsonVal)
 		req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonStr))
 		req.Header.Set("Access-Key", loggedInUser["apiAccessKey"].(string))
 		req.Header.Set("Content-type", "application/json")
@@ -622,12 +632,17 @@ func appointmentEditConfirmHandler(res http.ResponseWriter, req *http.Request) {
 		if err != nil {
 			logger.Error.Println(err)
 		}
-		if resp.StatusCode != http.StatusAccepted {
-			ViewData.Unsuccessful = true
 
-		} else {
+		switch resp.StatusCode {
+		case http.StatusConflict:
+			ViewData.Error = true
+			ViewData.SessionBooked = true
+		case http.StatusAccepted:
 			ViewData.Successful = true
+		default:
+			ViewData.Error = true
 		}
+
 		defer resp.Body.Close()
 	}
 
@@ -730,6 +745,11 @@ func userListHandler(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if loggedInUser["role"].(string) != "admin" {
+		http.Redirect(res, req, "/", http.StatusUnauthorized)
+		return
+	}
+
 	ViewData := struct {
 		LoggedInUser   map[string]interface{}
 		CurrentPage    string
@@ -774,7 +794,6 @@ func userEditHandler(res http.ResponseWriter, req *http.Request) {
 
 	ViewData := struct {
 		LoggedInUser         map[string]interface{}
-		PageTitle            string
 		CurrentPage          string
 		UserData             map[string]interface{}
 		ValidateFirstName    bool
@@ -785,7 +804,6 @@ func userEditHandler(res http.ResponseWriter, req *http.Request) {
 		Error                bool
 	}{
 		loggedInUser,
-		"Edit User Information",
 		"",
 		nil,
 		true,
@@ -794,6 +812,10 @@ func userEditHandler(res http.ResponseWriter, req *http.Request) {
 		true,
 		false,
 		false,
+	}
+
+	if loggedInUser["role"].(string) == "admin" {
+		ViewData.CurrentPage = "MU"
 	}
 
 	params := mux.Vars(req)
@@ -880,7 +902,7 @@ func userEditHandler(res http.ResponseWriter, req *http.Request) {
 		}
 
 		url := util.GetEnvVar("API_USER_ADDR") + "/api/v1/user/" + username
-		var jsonStr = []byte(jsonMarshal)
+		var jsonStr = jsonMarshal
 		req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonStr))
 		req.Header.Set("Access-Key", loggedInUser["apiAccessKey"].(string))
 		req.Header.Set("Content-type", "application/json")
@@ -908,4 +930,99 @@ func userEditHandler(res http.ResponseWriter, req *http.Request) {
 	if err := tpl.ExecuteTemplate(res, "userEdit.gohtml", ViewData); err != nil {
 		logger.Error.Println(err)
 	}
+}
+
+func sessionListHandler(res http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			res.WriteHeader(http.StatusInternalServerError)
+			logger.Panic.Println(err)
+		}
+	}()
+
+	loggedInUser, err := authenticationCheck(res, req)
+	if err != nil {
+		http.Redirect(res, req, "/", http.StatusSeeOther)
+		return
+	}
+
+	if loggedInUser["role"].(string) != "admin" {
+		http.Redirect(res, req, "/", http.StatusUnauthorized)
+		return
+	}
+
+	ViewData := struct {
+		LoggedInUser   map[string]interface{}
+		CurrentPage    string
+		Sessions       []map[string]interface{}
+		TerminateError bool
+	}{
+		loggedInUser,
+		"MS",
+		nil,
+		false,
+	}
+
+	tErr := req.URL.Query().Get("error")
+	if err, _ := strconv.ParseBool(tErr); err {
+		ViewData.TerminateError = true
+	}
+
+	url := util.GetEnvVar("API_AUTHENTICATION_ADDR") + "/api/v1/sessions"
+	body, err := util.FetchData(url, loggedInUser["apiAccessKey"].(string))
+	if err != nil {
+		logger.Error.Println(err)
+	}
+	json.Unmarshal(body, &ViewData.Sessions)
+
+	if err := tpl.ExecuteTemplate(res, "sessions.gohtml", ViewData); err != nil {
+		logger.Error.Println(err)
+	}
+}
+
+func sessionTerminateListHandler(res http.ResponseWriter, req *http.Request) {
+	defer func() {
+		if err := recover(); err != nil {
+			res.WriteHeader(http.StatusInternalServerError)
+			logger.Panic.Println(err)
+		}
+	}()
+
+	loggedInUser, err := authenticationCheck(res, req)
+	if err != nil {
+		http.Redirect(res, req, "/", http.StatusSeeOther)
+		return
+	}
+
+	if loggedInUser["role"].(string) != "admin" {
+		http.Redirect(res, req, "/", http.StatusUnauthorized)
+		return
+	}
+
+	params := mux.Vars(req)
+	username := params["username"]
+
+	url := util.GetEnvVar("API_AUTHENTICATION_ADDR") + "/api/v1/session/" + username
+	req, err = http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		logger.Error.Println(err)
+	}
+
+	req.Header.Set("Access-Key", loggedInUser["apiAccessKey"].(string))
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Error.Println(err)
+		http.Redirect(res, req, "/sessions?error=true", http.StatusSeeOther)
+		return
+	}
+
+	if resp.StatusCode == http.StatusAccepted {
+		http.Redirect(res, req, "/sessions", http.StatusSeeOther)
+		return
+	} else {
+		http.Redirect(res, req, "/sessions?error=true", http.StatusSeeOther)
+		return
+	}
+	defer resp.Body.Close()
 }

@@ -4,23 +4,34 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/shiweii/logger"
 	util "github.com/shiweii/utility"
+	"github.com/shiweii/validator"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func signupHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
+		type SignUpData struct {
+			Username     string `json:"username"`
+			FirstName    string `json:"firstName"`
+			LastName     string `json:"lastName"`
+			Password     string `json:"password"`
+			MobileNumber int    `json:"mobileNumber"`
+		}
+
 		var (
-			reqResult                      map[string]interface{}
-			reqUsername, reqPassword, uuid string
+			validationError = make(map[string][]map[string]string)
+			errorFields     []map[string]string
+			signupData      SignUpData
+			uuid            string
 		)
 
 		reqBody, err := ioutil.ReadAll(req.Body)
@@ -31,11 +42,48 @@ func signupHandler(db *sql.DB) http.HandlerFunc {
 		}
 
 		// convert JSON to object
-		json.Unmarshal(reqBody, &reqResult)
+		json.Unmarshal(reqBody, &signupData)
 
-		reqUsername = reqResult["username"].(string)
-		reqPassword = reqResult["password"].(string)
-		bPassword, err := bcrypt.GenerateFromPassword([]byte(reqPassword), bcrypt.MinCost)
+		// Validation
+		// Validate username
+		if validator.IsEmpty(signupData.Username) || !validator.IsValidUsername(signupData.Username) {
+			error := make(map[string]string)
+			error["field"] = "Username"
+			errorFields = append(errorFields, error)
+		}
+		// Validate first name
+		if validator.IsEmpty(signupData.FirstName) || !validator.IsValidName(signupData.FirstName) {
+			error := make(map[string]string)
+			error["field"] = "FirstName"
+			errorFields = append(errorFields, error)
+		}
+		// Validate last name
+		if validator.IsEmpty(signupData.LastName) || !validator.IsValidName(signupData.LastName) {
+			error := make(map[string]string)
+			error["field"] = "LastName"
+			errorFields = append(errorFields, error)
+		}
+		// Validate mobile number
+		if validator.IsEmpty(strconv.Itoa(signupData.MobileNumber)) || !validator.IsMobileNumber(strconv.Itoa(signupData.MobileNumber)) {
+			error := make(map[string]string)
+			error["field"] = "MobileNumber"
+			errorFields = append(errorFields, error)
+		}
+		// Validate password
+		if validator.IsEmpty(signupData.Password) || !validator.IsValidPassword(signupData.Password) {
+			error := make(map[string]string)
+			error["field"] = "Password"
+			errorFields = append(errorFields, error)
+		}
+
+		if len(errorFields) > 0 {
+			res.WriteHeader(http.StatusBadRequest)
+			validationError["validationError"] = errorFields
+			json.NewEncoder(res).Encode(validationError)
+			return
+		}
+
+		bPassword, err := bcrypt.GenerateFromPassword([]byte(signupData.Password), bcrypt.MinCost)
 		if err != nil {
 			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
@@ -44,7 +92,6 @@ func signupHandler(db *sql.DB) http.HandlerFunc {
 		}
 
 		url := util.GetEnvVar("API_USER_ADDR") + "/api/v1/user"
-
 		req, err = http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
 		req.Header.Set("Content-type", "application/json")
 
@@ -70,7 +117,7 @@ func signupHandler(db *sql.DB) http.HandlerFunc {
 		defer resp.Body.Close()
 
 		// Create User in Authentication table
-		_, err = db.Query("call spAuthenticationCreate(?, ?)", reqUsername, bPassword)
+		_, err = db.Query("call spAuthenticationCreate(?, ?)", signupData.Username, bPassword)
 		if err != nil {
 			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
@@ -78,8 +125,9 @@ func signupHandler(db *sql.DB) http.HandlerFunc {
 		}
 
 		// Issue a new cookie
-		timeNow := time.Now().AddDate(0, 0, 1)
-		result := db.QueryRow("call spUserSessionCreate(?, ?)", reqUsername, timeNow)
+		timeNow := time.Now()
+		timeExpire := timeNow.AddDate(0, 0, 1)
+		result := db.QueryRow("call spUserSessionCreate(?, ?, ?)", signupData.Username, timeExpire.Format(time.RFC3339), timeNow.Format(time.RFC3339))
 		err = result.Scan(&uuid)
 		if err != nil {
 			logger.Error.Println(err)
@@ -112,6 +160,7 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 
 		reqBody, err := ioutil.ReadAll(req.Body)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			res.Write([]byte("500 - Server Error"))
 			return
@@ -126,6 +175,7 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 		result := db.QueryRow("CALL spAuthenticationGet(?)", reqUsername)
 		err = result.Scan(&retUsername, &retHashedPassword, &retAccessKey)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusNotFound)
 			res.Write([]byte("Incorrect username or password."))
 			return
@@ -133,7 +183,6 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 
 		err = bcrypt.CompareHashAndPassword([]byte(retHashedPassword), []byte(reqPassword))
 		if err != nil {
-			logger.Error.Println(err)
 			res.WriteHeader(http.StatusUnauthorized)
 			res.Write([]byte("Incorrect username or password."))
 			return
@@ -150,8 +199,7 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 		}
 		if exist {
 			// Delete existing user session
-			query := fmt.Sprintf("DELETE FROM UserSession WHERE Username='%s'", reqUsername)
-			_, err = db.Query(query)
+			_, err = db.Query("call spUserSessionDeleteByUsername(?)", reqUsername)
 			if err != nil {
 				logger.Error.Println(err)
 				res.WriteHeader(http.StatusInternalServerError)
@@ -162,8 +210,9 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 
 		// Issue a new cookie
 		var uuid string
-		timeNow := time.Now().AddDate(0, 0, 1)
-		result = db.QueryRow("call spUserSessionCreate(?, ?)", reqUsername, timeNow)
+		timeNow := time.Now()
+		timeExpire := timeNow.AddDate(0, 0, 1)
+		result = db.QueryRow("call spUserSessionCreate(?, ?, ?)", reqUsername, timeExpire.Format(time.RFC3339), timeNow.Format(time.RFC3339))
 		err = result.Scan(&uuid)
 		if err != nil {
 			logger.Error.Println(err)
@@ -174,7 +223,7 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 
 		cookie := &http.Cookie{
 			Name:    util.GetEnvVar("COOKIE_NAME"),
-			Expires: timeNow,
+			Expires: timeExpire,
 			Value:   uuid,
 			Path:    "/",
 			Secure:  true,
@@ -182,7 +231,6 @@ func loginHandler(db *sql.DB) http.HandlerFunc {
 
 		http.SetCookie(res, cookie)
 		return
-
 	}
 
 }
@@ -194,6 +242,7 @@ func logoutHandler(db *sql.DB) http.HandlerFunc {
 
 		reqBody, err := ioutil.ReadAll(req.Body)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -201,14 +250,53 @@ func logoutHandler(db *sql.DB) http.HandlerFunc {
 		// convert JSON to object
 		json.Unmarshal(reqBody, &reqResult)
 
-		query := fmt.Sprintf("DELETE FROM UserSession WHERE SessionID='%s'", reqResult["sessionID"].(string))
-		_, err = db.Query(query)
+		// Delete user session
+		_, err = db.Query("call spUserSessionDeleteByUsername(?)", reqResult["username"].(string))
 		if err != nil {
 			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
+	}
+}
+
+func sessionListHandler(db *sql.DB) http.HandlerFunc {
+	return func(res http.ResponseWriter, req *http.Request) {
+
+		type UserSession struct {
+			Username  string `json:"username"`
+			Role      string `json:"role"`
+			SessionID string `json:"sessionID"`
+			LoginDT   string `json:"loginDT"`
+		}
+
+		var (
+			userSessions []UserSession
+		)
+
+		results, err := db.Query("call spUserSessionGetAll()")
+		// Session Not Found
+		if err != nil {
+			res.WriteHeader(http.StatusInternalServerError)
+			res.Write([]byte("500 - Server Error"))
+			return
+		}
+
+		for results.Next() {
+			// map this type to the record in the table
+			var userSession UserSession
+			err := results.Scan(&userSession.Username, &userSession.Role, &userSession.SessionID, &userSession.LoginDT)
+			if err != nil {
+				logger.Error.Println(err)
+				res.WriteHeader(http.StatusInternalServerError)
+				res.Write([]byte("500 - Server Error"))
+				return
+			}
+			userSessions = append(userSessions, userSession)
+		}
+
+		json.NewEncoder(res).Encode(userSessions)
 	}
 }
 
@@ -243,8 +331,7 @@ func sessionHandler(db *sql.DB) http.HandlerFunc {
 		expired := currentTime.After(sessionExpiredDT)
 		if expired {
 			// Delete Session from Database
-			query := fmt.Sprintf("DELETE FROM UserSession WHERE SessionID='%s'", sessionID)
-			_, err = db.Query(query)
+			_, err = db.Query("call spUserSessionDeleteByUsername(?)", userSession.Username)
 			if err != nil {
 				logger.Error.Println(err)
 				res.WriteHeader(http.StatusInternalServerError)
@@ -254,5 +341,22 @@ func sessionHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		json.NewEncoder(res).Encode(userSession)
+	}
+}
+
+func sessionDeleteHandler(db *sql.DB) http.HandlerFunc {
+	return func(res http.ResponseWriter, req *http.Request) {
+		params := mux.Vars(req)
+		username := params["username"]
+
+		_, err := db.Query("call spUserSessionDeleteByUsername(?)", username)
+		if err != nil {
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			res.Write([]byte("500 - Server Error"))
+			return
+		}
+
+		res.WriteHeader(http.StatusAccepted)
 	}
 }

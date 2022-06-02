@@ -10,6 +10,7 @@ require (
 	github.com/shiweii/middleware v0.0.0-00010101000000-000000000000
 	github.com/shiweii/user v0.0.0-00010101000000-000000000000
 	github.com/shiweii/utility v0.0.0-00010101000000-000000000000
+	github.com/shiweii/validator v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -22,4 +23,5 @@ replace (
 	github.com/shiweii/middleware => ../../../pkg/middleware
 	github.com/shiweii/user => ../../../pkg/user
 	github.com/shiweii/utility => ../../../pkg/utility
+	github.com/shiweii/validator => ../../../pkg/validator
 )

@@ -18,6 +18,7 @@ func TestIsEmpty(t *testing.T) {
 	}
 }
 
+//goland:noinspection SpellCheckingInspection
 func TestIsValidName(t *testing.T) {
 	got := IsValidName("Sam")
 	res := true
@@ -56,6 +57,7 @@ func TestIsValidName(t *testing.T) {
 	}
 }
 
+//goland:noinspection SpellCheckingInspection,SpellCheckingInspection
 func TestIsValidUsername(t *testing.T) {
 	got := IsValidUsername("lobby23")
 	res := true
@@ -112,6 +114,7 @@ func TestIsValidUsername(t *testing.T) {
 	}
 }
 
+//goland:noinspection SpellCheckingInspection
 func TestIsValidPassword(t *testing.T) {
 	got := IsValidPassword("P@ssw0rd")
 	res := true

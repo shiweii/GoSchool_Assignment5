@@ -2,8 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/go-sql-driver/mysql"
@@ -29,9 +27,9 @@ func main() {
 	db, err := sql.Open("mysql", dbCfg.FormatDSN())
 	// handle error
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal.Fatalln(err)
 	} else {
-		fmt.Println("Database opened")
+		logger.Info.Println("Database opened")
 	}
 
 	// defer the close till after the main function has finished executing
@@ -45,7 +43,10 @@ func main() {
 	api.Handle("/signup", std.Extend(alice.New(mw.CORSHandler, mw.ContentTypeHandler)).Then(signupHandler(db))).Methods("POST", "OPTIONS")
 	api.Handle("/login", std.Extend(alice.New(mw.CORSHandler, mw.ContentTypeHandler)).Then(loginHandler(db))).Methods("POST", "OPTIONS")
 	api.Handle("/logout", std.Extend(alice.New(mw.ContentTypeHandler, mw.AccessKeyHandler(db))).Then(logoutHandler(db))).Methods("POST")
+
+	api.Handle("/sessions", std.Extend(alice.New(mw.AuthAdminHandler(db))).Then(sessionListHandler(db))).Methods("GET")
 	api.Handle("/session/{sessionID}", std.Then(sessionHandler(db))).Methods("GET")
+	api.Handle("/session/{username}", std.Extend(alice.New(mw.AuthAdminHandler(db))).Then(sessionDeleteHandler(db))).Methods("DELETE")
 
 	if err := http.ListenAndServe(util.GetEnvVar("PORT"), router); err != nil {
 		logger.Fatal.Fatalln("ListenAndServe: ", err)

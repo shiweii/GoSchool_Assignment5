@@ -12,7 +12,7 @@
 <body>
 
 <div class="container">
-    <br/>
+    {{template "navbar" .}}
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="/appointments">Manage Appointment</a></li>
@@ -23,6 +23,13 @@
     <br/>
     {{ if .Successful }}
         <div class="alert alert-success" role="alert">Appointment changed successfully</div>
+    {{end}}
+    {{ if .Error }}
+        {{ if .SessionBooked}}
+            <div class="alert alert-danger" role="alert">The appointment slot have been booked by another user. <a href="/appointment/edit/{{.OrigAppointment.ID}}">Click here</a> to select another slot.</div>
+        {{else}}
+            <div class="alert alert-danger" role="alert">There's an error editing the appointment, <a href="/appointments">click here</a> to try again.</div>
+        {{end}}
     {{end}}
     <h3><u>Existing Appointment</u></h3>
     <div>Patient: <b>{{.OrigAppointment.Patient.FirstName}} {{.OrigAppointment.Patient.LastName}}</b></div>
@@ -38,7 +45,7 @@
     <br/>
     <form method="post">
         {{if not .Successful}}
-            {{if not .Unsuccessful}}
+            {{if not .Error}}
                 <button type="submit" class="btn btn-primary">Submit</button>
             {{end}}
         {{end}}

@@ -5,12 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"os"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -64,53 +62,6 @@ func GetEnvVar(v string) string {
 	return os.Getenv(v)
 }
 
-// LevenshteinDistance computes and returns
-// the number of changes between two strings.
-func LevenshteinDistance(s, t string) int {
-	// Change string to lower case for accurate comparison
-	s = strings.ToLower(s)
-	t = strings.ToLower(t)
-	// Create LD Matrix
-	d := make([][]int, len(t)+1)
-	for i := range d {
-		d[i] = make([]int, len(s)+1)
-	}
-	for i := range d {
-		d[i][0] = i
-	}
-	for j := range d[0] {
-		d[0][j] = j
-	}
-
-	// Loop LD Matrix
-	for j := 1; j <= len(t); j++ {
-		for i := 1; i <= len(s); i++ {
-			if s[i-1] == t[j-1] {
-				d[j][i] = d[j-1][i-1]
-			} else {
-				// Check for Min
-				min := d[j-1][i-1]
-				if d[j][i-1] < min {
-					min = d[j][i-1]
-				}
-				if d[j-1][i] < min {
-					min = d[j-1][i]
-				}
-				d[j][i] = min + 1
-			}
-		}
-	}
-	return d[len(t)][len(s)]
-}
-
-// GenerateID generates a random number using math/rand
-// do not use if security is needed.
-func GenerateID() int {
-	s1 := rand.NewSource(time.Now().UnixNano())
-	r1 := rand.New(s1)
-	return r1.Intn(10000000000)
-}
-
 // AddOne return plus 1 to input integer.
 func AddOne(x int) int {
 	return x + 1
@@ -143,6 +94,7 @@ func GetDay(x string) string {
 	return ""
 }
 
+// ToInt converts interface into Integer
 func ToInt(value interface{}) int {
 	switch v := value.(type) {
 	case string:
@@ -157,6 +109,17 @@ func ToInt(value interface{}) int {
 	}
 }
 
+func FormatDateTime(x string) string {
+	td, err := time.Parse(time.RFC3339, x)
+	if err != nil {
+		logger.Error.Println(err)
+	} else {
+		return td.Format("02-Jan-2006 15:04:05")
+	}
+	return ""
+}
+
+// NewNullString sets empty string to sql null value
 func NewNullString(s string) sql.NullString {
 	if len(s) == 0 {
 		return sql.NullString{}
@@ -167,6 +130,7 @@ func NewNullString(s string) sql.NullString {
 	}
 }
 
+// NewNullInt64 sets 0 to sql null value
 func NewNullInt64(d int) sql.NullInt64 {
 	if d == 0 {
 		return sql.NullInt64{}

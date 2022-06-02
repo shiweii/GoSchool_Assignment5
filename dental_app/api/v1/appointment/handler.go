@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -21,13 +20,19 @@ import (
 func appointmentListHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
-		query := "SELECT * FROM Appointment"
-		appointments, err := app.GetList(db, query)
+		query := "SELECT * FROM Appointment ORDER BY Date ASC"
+		results, err := db.Query(query)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-
+		appointments, err := app.GetLList(db, results)
+		if err != nil {
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		json.NewEncoder(res).Encode(appointments)
 	}
 }
@@ -39,9 +44,16 @@ func patientAppointmentListHandler(db *sql.DB) http.HandlerFunc {
 		params := mux.Vars(req)
 		username := params["username"]
 
-		query := fmt.Sprintf("SELECT * FROM Appointment WHERE Patient = '%s'", username)
-		appointments, err := app.GetList(db, query)
+		stmt, err := db.Prepare("SELECT * FROM Appointment WHERE Patient = ? ORDER BY Date ASC")
 		if err != nil {
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		results, err := stmt.Query(username)
+		appointments, err := app.GetLList(db, results)
+		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -56,9 +68,16 @@ func dentistAppointmentListHandler(db *sql.DB) http.HandlerFunc {
 		params := mux.Vars(req)
 		username := params["username"]
 
-		query := fmt.Sprintf("SELECT * FROM Appointment WHERE Dentist = '%s'", username)
-		appointments, err := app.GetList(db, query)
+		stmt, err := db.Prepare("SELECT * FROM Appointment WHERE Dentist = ?")
 		if err != nil {
+			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		results, err := stmt.Query(username)
+		appointments, err := app.GetLList(db, results)
+		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -66,7 +85,7 @@ func dentistAppointmentListHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// dentistAppointmentListHandler handles request to return a dentist Availability.
+// dentistAppointmentListHandler handles request to return a dentist availability.
 func dentistAppointmentAvailabilityHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 		params := mux.Vars(req)
@@ -75,6 +94,7 @@ func dentistAppointmentAvailabilityHandler(db *sql.DB) http.HandlerFunc {
 
 		results, err := db.Query("CALL spUserGetDentistAvailability(?,?)", username, date)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -95,6 +115,7 @@ func dentistAppointmentAvailabilityHandler(db *sql.DB) http.HandlerFunc {
 			var date sql.NullString
 			err = results.Scan(&dentist, &date, &dentistAvail.Session, &dentistAvail.StartTime, &dentistAvail.EndTime)
 			if err != nil {
+				logger.Error.Println(err)
 				res.WriteHeader(http.StatusInternalServerError)
 				return
 			}
@@ -112,21 +133,21 @@ func appointmentHandler(db *sql.DB) http.HandlerFunc {
 
 		params := mux.Vars(req)
 		appID := params["id"]
-		// map this type to the record in the table
+
 		var appointment app.Appointment
 		appointment.ID, _ = strconv.Atoi(appID)
 		err := appointment.GetByID(db)
 		if err != nil {
 			if err == sql.ErrNoRows {
+				logger.Error.Println(err)
 				res.WriteHeader(http.StatusNotFound)
 				return
 			} else {
-				res.WriteHeader(http.StatusInternalServerError)
 				logger.Error.Println(err)
+				res.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 		}
-
 		json.NewEncoder(res).Encode(appointment)
 	}
 }
@@ -142,6 +163,7 @@ func appointmentCreateHandler(db *sql.DB) http.HandlerFunc {
 
 		reqBody, err := ioutil.ReadAll(req.Body)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -151,6 +173,7 @@ func appointmentCreateHandler(db *sql.DB) http.HandlerFunc {
 
 		err = apiKeyUser.GetUserByAccessKey(db, req.Header.Get("Access-Key"))
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -170,14 +193,28 @@ func appointmentCreateHandler(db *sql.DB) http.HandlerFunc {
 			newAppointment.Session,
 		)
 		if mysqlError, ok := err.(*mysql.MySQLError); ok {
-			if mysqlError.Number == 1062 {
-				logger.Error.Println(err)
+			logger.Error.Println(err)
+			switch mysqlError.Number {
+			case 1062:
 				res.WriteHeader(http.StatusConflict)
-				res.Write([]byte("409 - Seesion Booked"))
+				res.Write([]byte("409 - Session Booked."))
 				return
-			} else {
+			case 1452:
+				if strings.Contains(mysqlError.Message, "AppointmentSession_ID") {
+					res.WriteHeader(http.StatusBadRequest)
+					res.Write([]byte("400 - Invalid Session."))
+				}
+				if strings.Contains(mysqlError.Message, "Dentist") {
+					res.WriteHeader(http.StatusNotFound)
+					res.Write([]byte("404 - Dentist Not Found."))
+				}
+			case 1292:
+				res.WriteHeader(http.StatusBadRequest)
+				res.Write([]byte("400 - Invalid Date."))
+			default:
 				logger.Error.Println(err)
 				res.WriteHeader(http.StatusInternalServerError)
+				res.Write([]byte("500 - Server Error"))
 				return
 			}
 		}
@@ -186,7 +223,7 @@ func appointmentCreateHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// appointmentDeleteHandler handles request to crate a new appointment.
+// appointmentDeleteHandler handles request to delete an existing appointment.
 func appointmentDeleteHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
@@ -202,6 +239,7 @@ func appointmentDeleteHandler(db *sql.DB) http.HandlerFunc {
 		appointment.ID, _ = strconv.Atoi(appID)
 		err := appointment.GetByID(db)
 		if err != nil {
+			logger.Error.Println(err)
 			if err == sql.ErrNoRows {
 				res.WriteHeader(http.StatusNotFound)
 				return
@@ -215,11 +253,12 @@ func appointmentDeleteHandler(db *sql.DB) http.HandlerFunc {
 		// Patients are only allowed to delete their own appointment.
 		err = apiKeyUser.GetUserByAccessKey(db, req.Header.Get("Access-Key"))
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusNotFound)
 			return
 		}
 		if apiKeyUser.Role == user.EnumPatient {
-			if com := strings.Compare(apiKeyUser.Username, appointment.Patient.(string)); com != 0 {
+			if com := strings.Compare(apiKeyUser.Username, appointment.Patient.(*user.User).Username); com != 0 {
 				res.WriteHeader(http.StatusUnauthorized)
 				res.Write([]byte("401 - Unauthorized"))
 				return
@@ -229,8 +268,8 @@ func appointmentDeleteHandler(db *sql.DB) http.HandlerFunc {
 		// Delete Appointment
 		err = appointment.Delete(db)
 		if err != nil {
-			res.WriteHeader(http.StatusInternalServerError)
 			logger.Error.Println(err)
+			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -254,6 +293,7 @@ func appointmentUpdateHandler(db *sql.DB) http.HandlerFunc {
 
 		err := apiKeyUser.GetUserRoleByAccessKey(db, req.Header.Get("Access-Key"))
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -261,18 +301,20 @@ func appointmentUpdateHandler(db *sql.DB) http.HandlerFunc {
 		origAppointment.ID = appID
 		err = origAppointment.GetByID(db)
 		if err != nil {
+			logger.Error.Println(err)
 			if err == sql.ErrNoRows {
 				res.WriteHeader(http.StatusNotFound)
 				return
 			} else {
-				res.WriteHeader(http.StatusInternalServerError)
 				logger.Error.Println(err)
+				res.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 		}
 
 		reqBody, err := ioutil.ReadAll(req.Body)
 		if err != nil {
+			logger.Error.Println(err)
 			res.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -318,13 +360,25 @@ func appointmentUpdateHandler(db *sql.DB) http.HandlerFunc {
 			switch mysqlError.Number {
 			case 1062:
 				res.WriteHeader(http.StatusConflict)
-				res.Write([]byte("409 - Session Booked"))
+				res.Write([]byte("409 - Session Booked."))
+				return
 			case 1452:
-				res.WriteHeader(http.StatusNotFound)
-				res.Write([]byte("409 - Dentist Not Found"))
+				if strings.Contains(mysqlError.Message, "AppointmentSession_ID") {
+					res.WriteHeader(http.StatusBadRequest)
+					res.Write([]byte("400 - Invalid Session."))
+				}
+				if strings.Contains(mysqlError.Message, "Dentist") {
+					res.WriteHeader(http.StatusNotFound)
+					res.Write([]byte("404 - Dentist Not Found."))
+				}
+			case 1292:
+				res.WriteHeader(http.StatusBadRequest)
+				res.Write([]byte("400 - Invalid Date."))
 			default:
+				logger.Error.Println(err)
 				res.WriteHeader(http.StatusInternalServerError)
 				res.Write([]byte("500 - Server Error"))
+				return
 			}
 			return
 		}
@@ -334,7 +388,7 @@ func appointmentUpdateHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// AppointmentSessionListHandler handles request to list all sessions.
+// AppointmentSessionListHandler handles request to list all appointment sessions.
 func AppointmentSessionListHandler(db *sql.DB) http.HandlerFunc {
 	return func(res http.ResponseWriter, req *http.Request) {
 
@@ -349,6 +403,8 @@ func AppointmentSessionListHandler(db *sql.DB) http.HandlerFunc {
 			var appSession app.AppSession
 			err = results.Scan(&appSession.ID, &appSession.StartTime, &appSession.EndTime)
 			if err != nil {
+				logger.Error.Println(err)
+				res.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 			appSessionList = append(appSessionList, appSession)

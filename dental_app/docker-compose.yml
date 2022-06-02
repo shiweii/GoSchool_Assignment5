@@ -14,14 +14,7 @@ services:
       - MYSQL_DATABASE=database
       - MYSQL_ROOT_PASSWORD=password
     volumes:
-      - "./scripts/dental_db.sql:/docker-entrypoint-initdb.d/1.sql"
-      - "./scripts/dental_db_User.sql:/docker-entrypoint-initdb.d/2.sql"
-      - "./scripts/dental_db_APIAccessKey.sql:/docker-entrypoint-initdb.d/3.sql"
-      - "./scripts/dental_db_Appointment.sql:/docker-entrypoint-initdb.d/4.sql"
-      - "./scripts/dental_db_AppointmentSession.sql:/docker-entrypoint-initdb.d/5.sql"
-      - "./scripts/dental_db_Authentication.sql:/docker-entrypoint-initdb.d/6.sql"
-      - "./scripts/dental_db_UserSession.sql:/docker-entrypoint-initdb.d/7.sql"
-      - "./scripts/dental_db_routines.sql:/docker-entrypoint-initdb.d/8.sql"
+      - "./scripts/db_script.sql:/docker-entrypoint-initdb.d/1.sql"
 
   web_app:
     container_name: web_app

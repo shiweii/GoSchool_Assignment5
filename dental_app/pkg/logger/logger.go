@@ -37,11 +37,3 @@ func init() {
 	Panic = log.New(io.MultiWriter(file, os.Stderr), "PANIC: ", log.Ldate|log.Ltime|log.Lshortfile)
 	Fatal = log.New(io.MultiWriter(file, os.Stderr), "FATAL: ", log.Ldate|log.Ltime|log.Lshortfile)
 }
-
-// CloseLogger closes the logfile when interrupted signal is detected.
-func CloseLogger() {
-	err := file.Close()
-	if err != nil {
-		return
-	}
-}

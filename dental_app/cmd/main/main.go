@@ -12,10 +12,11 @@ import (
 var (
 	tpl *template.Template
 	fm  = template.FuncMap{
-		"addOne":     util.AddOne,
-		"getDay":     util.GetDay,
-		"formatDate": util.FormatDate,
-		"toInt":      util.ToInt,
+		"addOne":         util.AddOne,
+		"getDay":         util.GetDay,
+		"formatDate":     util.FormatDate,
+		"toInt":          util.ToInt,
+		"formatDateTime": util.FormatDateTime,
 	}
 )
 
@@ -43,6 +44,10 @@ func main() {
 
 	router.HandleFunc("/users", userListHandler)
 	router.HandleFunc("/user/edit/{username}", userEditHandler)
+
+	// Admin
+	router.HandleFunc("/sessions", sessionListHandler)
+	router.HandleFunc("/session/terminate/{username}", sessionTerminateListHandler)
 
 	if err := http.ListenAndServe(":8080", router); err != nil {
 		logger.Fatal.Fatalln("ListenAndServe: ", err)

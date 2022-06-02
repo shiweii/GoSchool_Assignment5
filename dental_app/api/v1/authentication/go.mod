@@ -9,6 +9,7 @@ require (
 	github.com/shiweii/logger v0.0.0-00010101000000-000000000000
 	github.com/shiweii/middleware v0.0.0-00010101000000-000000000000
 	github.com/shiweii/utility v0.0.0-00010101000000-000000000000
+	github.com/shiweii/validator v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e
 )
 
@@ -21,4 +22,5 @@ replace (
 	github.com/shiweii/logger => ../../../pkg/logger
 	github.com/shiweii/middleware => ../../../pkg/middleware
 	github.com/shiweii/utility => ../../../pkg/utility
+	github.com/shiweii/validator => ../../../pkg/validator
 )
